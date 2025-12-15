@@ -367,6 +367,14 @@
             transition: box-shadow 0.2s ease;
         }
 
+        .map-element img {
+            pointer-events: none;
+            -webkit-user-drag: none;
+            user-drag: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
         .map-element:hover {
             z-index: 100;
         }
@@ -1011,7 +1019,40 @@
             opacity: 1;
             transform: translateX(-50%) translateY(0);
         }
+
+        /* View-Only Mode */
+        .view-only-indicator {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(44, 36, 22, 0.9);
+            color: var(--parchment);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            z-index: 1002;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .view-only-mode .map-element {
+            cursor: default !important;
+        }
+
+        .view-only-mode .connection-point {
+            display: none !important;
+        }
+
+        .view-only-mode .paths-layer path {
+            cursor: default !important;
+        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
 </head>
 <body>
     <!-- Header -->
@@ -1029,6 +1070,7 @@
         <div class="header-actions">
             <button class="btn btn-secondary" onclick="clearCanvas()">New Map</button>
             <button class="btn btn-secondary" onclick="exportMap()">Export</button>
+            <button class="btn btn-secondary" onclick="shareMap()">Share</button>
             <button class="btn btn-primary" onclick="saveMap()">Save</button>
         </div>
     </header>
@@ -1296,6 +1338,7 @@
         let dragOffsetY = 0;
         let elementIdCounter = 0;
         let pathIdCounter = 0;
+        let viewOnlyMode = false;
 
         // DOM Elements
         const canvas = document.getElementById('canvas');
@@ -1305,12 +1348,22 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            // Check for view-only mode first
+            checkViewOnlyMode();
+
             populateMilestoneGrids();
             setupDragAndDrop();
             setupCanvasInteraction();
             setupKeyboardShortcuts();
             updateMiniMap();
-            loadFromLocalStorage();
+
+            // Try to load from URL first, fallback to localStorage
+            if (!loadFromURL()) {
+                loadFromLocalStorage();
+            }
+
+            // Initialize view-only mode after content is loaded
+            initializeViewOnlyMode();
         });
 
         // Populate milestone grids with embedded images
@@ -1484,7 +1537,7 @@
                 case 'start':
                     div.classList.add('start-point');
                     div.innerHTML = `
-                        <img src="${CASTLE_IMAGES.windmill}" alt="Start" class="start-icon" style="width: 50px; height: auto;">
+                        <img src="${CASTLE_IMAGES.windmill}" alt="Start" class="start-icon" style="width: 50px; height: auto;" draggable="false">
                         <span class="label">Start Here</span>
                         <div class="connection-point right"></div>
                     `;
@@ -1520,7 +1573,7 @@
                     
                     let iconHtml = '';
                     if (element.castle && CASTLE_IMAGES[element.castle]) {
-                        iconHtml = `<img src="${CASTLE_IMAGES[element.castle]}" alt="Castle">`;
+                        iconHtml = `<img src="${CASTLE_IMAGES[element.castle]}" alt="Castle" draggable="false">`;
                     } else {
                         iconHtml = element.icon || (element.type === 'checkpoint' ? '🏕️' : '🏰');
                     }
@@ -1537,7 +1590,7 @@
 
                 case 'sign':
                     div.innerHTML = `
-                        <img src="${CASTLE_IMAGES.compass}" alt="Compass" class="sign-icon-img" style="width: 45px; height: auto;">
+                        <img src="${CASTLE_IMAGES.compass}" alt="Compass" class="sign-icon-img" style="width: 45px; height: auto;" draggable="false">
                         <div class="sign-value">${element.data.current || '0'} / ${element.data.target || '100'}</div>
                         <div class="sign-label">${element.data.label || 'Progress'}</div>
                         <div class="connection-point top"></div>
@@ -1551,7 +1604,7 @@
                     div.classList.add('obstacle');
                     let obstacleHtml = '';
                     if (element.castle && CASTLE_IMAGES[element.castle]) {
-                        obstacleHtml = `<img src="${CASTLE_IMAGES[element.castle]}" alt="Obstacle" style="width: 60px; height: auto;">`;
+                        obstacleHtml = `<img src="${CASTLE_IMAGES[element.castle]}" alt="Obstacle" style="width: 60px; height: auto;" draggable="false">`;
                     } else {
                         obstacleHtml = `<span class="obstacle-icon">${element.icon || '⛰️'}</span>`;
                     }
@@ -1573,51 +1626,55 @@
                     break;
             }
 
-            // Setup element interactions
-            div.addEventListener('mousedown', (e) => {
-                if (e.target.classList.contains('connection-point')) {
-                    startPath(element, e.target, e);
-                    return;
-                }
-                
-                if (!e.target.hasAttribute('contenteditable')) {
-                    startDrag(element, div, e);
-                }
-            });
-
-            div.addEventListener('click', (e) => {
-                if (!isDragging) {
-                    selectElement(element.id);
-                }
-            });
-
-            // Handle contenteditable changes
-            const editables = div.querySelectorAll('[contenteditable]');
-            editables.forEach(ed => {
-                ed.addEventListener('blur', () => {
-                    element.title = ed.textContent;
-                    // For notes, clear text if it matches placeholder
-                    if (element.type === 'note' && ed.textContent === 'Add note...') {
-                        element.title = '';
-                        ed.textContent = '';
+            // Setup element interactions (only if not in view-only mode)
+            if (!viewOnlyMode) {
+                div.addEventListener('mousedown', (e) => {
+                    if (e.target.classList.contains('connection-point')) {
+                        startPath(element, e.target, e);
+                        return;
                     }
-                    saveToLocalStorage();
-                });
-                ed.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        ed.blur();
+
+                    if (!e.target.hasAttribute('contenteditable')) {
+                        startDrag(element, div, e);
                     }
                 });
-                // For notes, clear placeholder on focus
-                if (element.type === 'note') {
-                    ed.addEventListener('focus', () => {
-                        if (ed.textContent === 'Add note...') {
+
+                div.addEventListener('click', (e) => {
+                    if (!isDragging) {
+                        selectElement(element.id);
+                    }
+                });
+            }
+
+            // Handle contenteditable changes (only if not in view-only mode)
+            if (!viewOnlyMode) {
+                const editables = div.querySelectorAll('[contenteditable]');
+                editables.forEach(ed => {
+                    ed.addEventListener('blur', () => {
+                        element.title = ed.textContent;
+                        // For notes, clear text if it matches placeholder
+                        if (element.type === 'note' && ed.textContent === 'Add note...') {
+                            element.title = '';
                             ed.textContent = '';
                         }
+                        saveToLocalStorage();
                     });
-                }
-            });
+                    ed.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            ed.blur();
+                        }
+                    });
+                    // For notes, clear placeholder on focus
+                    if (element.type === 'note') {
+                        ed.addEventListener('focus', () => {
+                            if (ed.textContent === 'Add note...') {
+                                ed.textContent = '';
+                            }
+                        });
+                    }
+                });
+            }
 
             canvas.appendChild(div);
         }
@@ -1842,19 +1899,22 @@
             const d = createPathWithWaypoints(path);
             pathEl.setAttribute('d', d);
             
-            pathEl.addEventListener('click', (e) => {
-                selectPath(path.id);
-                e.stopPropagation();
-            });
-            
-            // Double-click to add waypoint
-            pathEl.addEventListener('dblclick', (e) => {
-                const canvasRect = canvas.getBoundingClientRect();
-                const x = (e.clientX - canvasRect.left) / zoom;
-                const y = (e.clientY - canvasRect.top) / zoom;
-                addWaypointToPath(path, x, y);
-                e.stopPropagation();
-            });
+            // Path interactions (only if not in view-only mode)
+            if (!viewOnlyMode) {
+                pathEl.addEventListener('click', (e) => {
+                    selectPath(path.id);
+                    e.stopPropagation();
+                });
+
+                // Double-click to add waypoint
+                pathEl.addEventListener('dblclick', (e) => {
+                    const canvasRect = canvas.getBoundingClientRect();
+                    const x = (e.clientX - canvasRect.left) / zoom;
+                    const y = (e.clientY - canvasRect.top) / zoom;
+                    addWaypointToPath(path, x, y);
+                    e.stopPropagation();
+                });
+            }
             
             pathsLayer.appendChild(pathEl);
             
@@ -2692,6 +2752,146 @@
             }
         }
 
+        // URL-based Sharing Functions
+        function serializeState() {
+            const data = {
+                title: document.getElementById('mapTitle').value,
+                elements,
+                paths,
+                elementIdCounter,
+                pathIdCounter
+            };
+
+            // Convert to JSON, then compress using LZ-String
+            const jsonString = JSON.stringify(data);
+            // LZ-String compression produces much smaller URLs (60-80% reduction)
+            const compressed = LZString.compressToEncodedURIComponent(jsonString);
+            return compressed;
+        }
+
+        function deserializeState(encodedData) {
+            try {
+                // Decompress from LZ-String
+                const jsonString = LZString.decompressFromEncodedURIComponent(encodedData);
+                if (!jsonString) throw new Error('Failed to decompress data');
+                const data = JSON.parse(jsonString);
+
+                // Clear existing state
+                elements.forEach(el => document.getElementById(el.id)?.remove());
+                paths.forEach(p => {
+                    document.getElementById(p.id)?.remove();
+                    document.getElementById(`${p.id}-marker`)?.remove();
+                    document.getElementById(`${p.id}-label`)?.remove();
+                    document.getElementById(`${p.id}-label-bg`)?.remove();
+                });
+                elements.length = 0;
+                paths.length = 0;
+
+                // Restore state
+                document.getElementById('mapTitle').value = data.title || '';
+                elementIdCounter = data.elementIdCounter || 0;
+                pathIdCounter = data.pathIdCounter || 0;
+
+                data.elements?.forEach(el => {
+                    elements.push(el);
+                    renderElement(el);
+                });
+
+                data.paths?.forEach(p => {
+                    paths.push(p);
+                    renderPath(p);
+                });
+
+                if (elements.length > 0) {
+                    instructions.classList.add('hidden');
+                }
+
+                return true;
+            } catch (error) {
+                console.error('Failed to deserialize state:', error);
+                return false;
+            }
+        }
+
+        function loadFromURL() {
+            // Check if there's a hash in the URL
+            const hash = window.location.hash.slice(1); // Remove the # character
+            if (hash) {
+                const success = deserializeState(hash);
+                if (success) {
+                    console.log('Map loaded from URL');
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function checkViewOnlyMode() {
+            // Check for ?view or ?view=true in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const isViewOnly = urlParams.has('view') || urlParams.get('view') === 'true';
+
+            if (isViewOnly) {
+                viewOnlyMode = true;
+                document.body.classList.add('view-only-mode');
+                console.log('View-only mode enabled');
+            }
+        }
+
+        function initializeViewOnlyMode() {
+            if (!viewOnlyMode) return;
+
+            // Hide all editing UI
+            const header = document.querySelector('.header');
+            const sidebar = document.querySelector('.sidebar-left');
+            const propertiesPanel = document.querySelector('.sidebar-right');
+
+            if (header) header.style.display = 'none';
+            if (sidebar) sidebar.style.display = 'none';
+            if (propertiesPanel) propertiesPanel.style.display = 'none';
+
+            // Adjust canvas container to full screen
+            const mainContainer = document.querySelector('.main-container');
+            if (mainContainer) {
+                mainContainer.style.marginTop = '0';
+                mainContainer.style.height = '100vh';
+            }
+
+            // Disable all contenteditable elements
+            document.querySelectorAll('[contenteditable]').forEach(el => {
+                el.setAttribute('contenteditable', 'false');
+            });
+
+            // Add view-only indicator with edit button
+            const indicator = document.createElement('div');
+            indicator.className = 'view-only-indicator';
+            indicator.innerHTML = `
+                <span>👁️ View Only</span>
+                <button onclick="openEditMode()" style="
+                    margin-left: 12px;
+                    padding: 4px 12px;
+                    background: var(--gold);
+                    border: none;
+                    border-radius: 12px;
+                    color: var(--ink);
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background 0.2s ease;
+                " onmouseover="this.style.background='var(--gold-light)'" onmouseout="this.style.background='var(--gold)'">
+                    Edit Copy
+                </button>
+            `;
+            document.body.appendChild(indicator);
+        }
+
+        function openEditMode() {
+            // Remove ?view parameter and reload
+            const url = new URL(window.location.href);
+            url.searchParams.delete('view');
+            window.location.href = url.toString();
+        }
+
         // Actions
         function clearCanvas() {
             if (confirm('Are you sure you want to start a new map? All unsaved changes will be lost.')) {
@@ -2723,7 +2923,7 @@
                 paths,
                 exportedAt: new Date().toISOString()
             };
-            
+
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -2732,6 +2932,36 @@
             a.click();
             URL.revokeObjectURL(url);
             showToast('Map exported!');
+        }
+
+        function shareMap() {
+            try {
+                const encoded = serializeState();
+                // Add ?view parameter for read-only mode (perfect for embedding)
+                const shareURL = `${window.location.origin}${window.location.pathname}?view#${encoded}`;
+
+                // Copy to clipboard
+                navigator.clipboard.writeText(shareURL).then(() => {
+                    showToast('Share link copied to clipboard! (Read-only for embedding)');
+                }).catch(err => {
+                    // Fallback for older browsers
+                    const textarea = document.createElement('textarea');
+                    textarea.value = shareURL;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    showToast('Share link copied to clipboard! (Read-only for embedding)');
+                });
+
+                // Also update the current URL hash without reloading (but keep current view mode)
+                history.replaceState(null, '', `#${encoded}`);
+            } catch (error) {
+                console.error('Failed to generate share link:', error);
+                showToast('Failed to generate share link');
+            }
         }
 
         function showToast(message) {
