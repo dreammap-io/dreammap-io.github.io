@@ -1883,6 +1883,29 @@
                 return null;
             }
         }
+
+        function updatePathLabelPosition(path) {
+            const textEl = document.getElementById(`${path.id}-label`);
+            const textBgEl = document.getElementById(`${path.id}-label-bg`);
+            const pathEl = document.getElementById(path.id);
+
+            if (!textEl || !pathEl) return;
+
+            const midpoint = getPathMidpoint(pathEl);
+            if (!midpoint) return;
+
+            textEl.setAttribute('x', midpoint.x);
+            textEl.setAttribute('y', midpoint.y);
+
+            if (textBgEl) {
+                const bbox = textEl.getBBox();
+                const padding = 6;
+                textBgEl.setAttribute('x', bbox.x - padding);
+                textBgEl.setAttribute('y', bbox.y - padding / 2);
+                textBgEl.setAttribute('width', bbox.width + padding * 2);
+                textBgEl.setAttribute('height', bbox.height + padding);
+            }
+        }
         
         function createPathWithWaypoints(path) {
             const waypoints = path.waypoints || [];
@@ -2037,15 +2060,16 @@
                 const canvasRect = canvas.getBoundingClientRect();
                 const x = (e.clientX - canvasRect.left) / zoom;
                 const y = (e.clientY - canvasRect.top) / zoom;
-                
+
                 draggingWaypoint.path.waypoints[draggingWaypoint.index] = { x, y };
-                
+
                 // Update path and handle position
                 const pathEl = document.getElementById(draggingWaypoint.path.id);
                 if (pathEl) {
                     pathEl.setAttribute('d', createPathWithWaypoints(draggingWaypoint.path));
+                    updatePathLabelPosition(draggingWaypoint.path);
                 }
-                
+
                 const handle = document.querySelector(`.waypoint-handle[data-path-id="${path.id}"][data-waypoint-index="${index}"]`);
                 if (handle) {
                     handle.setAttribute('cx', x);
@@ -2166,7 +2190,7 @@
                     
                     // Update path label position
                     if (path.label && pathEl) {
-                        renderPathLabel(path, pathEl);
+                        updatePathLabelPosition(path);
                     }
                 }
             });
