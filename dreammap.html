@@ -667,20 +667,70 @@
 
         /* Right Sidebar - Properties */
         .sidebar-right {
-            width: 260px;
-            background: var(--parchment-dark);
-            border-left: 2px solid var(--path-regular);
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 280px;
+            max-height: calc(100vh - 100px);
+            background: rgba(250, 247, 240, 0.98);
+            border: 2px solid var(--path-regular);
+            border-radius: 12px;
             padding: 20px;
             overflow-y: auto;
-            flex-shrink: 0;
+            box-shadow: 0 8px 24px rgba(44, 36, 22, 0.3), 0 2px 8px rgba(44, 36, 22, 0.15);
+            z-index: 100;
+            backdrop-filter: blur(8px);
+            transition: transform 0.3s ease, opacity 0.3s ease, box-shadow 0.2s ease;
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .sidebar-right.hidden {
+            opacity: 0;
+            transform: translateX(20px);
+            pointer-events: none;
+        }
+
+        .sidebar-right:hover {
+            box-shadow: 0 12px 32px rgba(44, 36, 22, 0.35), 0 4px 12px rgba(44, 36, 22, 0.2);
+        }
+
+        .sidebar-right::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar-right::-webkit-scrollbar-track {
+            background: transparent;
+            border-radius: 10px;
+        }
+
+        .sidebar-right::-webkit-scrollbar-thumb {
+            background: var(--path-regular);
+            border-radius: 10px;
+        }
+
+        .sidebar-right::-webkit-scrollbar-thumb:hover {
+            background: var(--ink-light);
         }
 
         .properties-panel {
             display: none;
+            animation: fadeIn 0.2s ease;
         }
 
         .properties-panel.visible {
             display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .property-group {
@@ -1093,7 +1143,7 @@
         </div>
 
         <!-- Right Sidebar -->
-        <aside class="sidebar-right">
+        <aside class="sidebar-right hidden">
             <div id="noSelection">
                 <h3 class="sidebar-title">Properties</h3>
                 <p style="font-size: 13px; color: var(--ink-light); line-height: 1.6;">
@@ -2200,31 +2250,37 @@
         function selectElement(id) {
             deselectAll();
             selectedElement = elements.find(el => el.id === id);
-            
+
             if (!selectedElement) return;
-            
+
             const div = document.getElementById(id);
             div.classList.add('selected');
-            
-            // Show appropriate properties panel
-            showPropertiesPanel(selectedElement);
+
+            // Only show sidebar for elements that have properties
+            const hasProperties = ['milestone', 'checkpoint', 'note', 'dream', 'sign', 'obstacle'].includes(selectedElement.type);
+            if (hasProperties) {
+                document.querySelector('.sidebar-right').classList.remove('hidden');
+                showPropertiesPanel(selectedElement);
+            }
         }
 
         function selectPath(id) {
             deselectAll();
             selectedPath = paths.find(p => p.id === id);
-            
+
             if (!selectedPath) return;
-            
+
             const pathEl = document.getElementById(id);
             pathEl.setAttribute('stroke-width', '5');
-            
+
             // Show waypoint handles
             renderWaypointHandles(selectedPath);
-            
+
+            // Show sidebar and path properties panel
+            document.querySelector('.sidebar-right').classList.remove('hidden');
             document.getElementById('pathProperties').classList.add('visible');
             document.getElementById('noSelection').style.display = 'none';
-            
+
             document.getElementById('pathType').value = selectedPath.type;
             document.getElementById('pathLabel').value = selectedPath.label || '';
         }
@@ -2235,7 +2291,10 @@
             document.querySelectorAll('.properties-panel').forEach(p => p.classList.remove('visible'));
             document.querySelectorAll('.waypoint-handle').forEach(h => h.remove());
             document.getElementById('noSelection').style.display = 'block';
-            
+
+            // Hide sidebar when nothing is selected
+            document.querySelector('.sidebar-right').classList.add('hidden');
+
             selectedElement = null;
             selectedPath = null;
         }
