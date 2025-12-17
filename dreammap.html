@@ -359,6 +359,15 @@
             r: 8;
         }
 
+        .paths-layer .deadend-handle {
+            pointer-events: all;
+            transition: r 0.15s ease;
+        }
+
+        .paths-layer .deadend-handle:hover {
+            r: 10;
+        }
+
         /* Map Elements */
         .map-element {
             position: absolute;
@@ -1881,6 +1890,7 @@
             document.getElementById(`${path.id}-label`)?.remove();
             document.getElementById(`${path.id}-label-bg`)?.remove();
             document.querySelectorAll(`.waypoint-handle[data-path-id="${path.id}"]`).forEach(el => el.remove());
+            document.querySelectorAll(`.deadend-handle[data-path-id="${path.id}"]`).forEach(el => el.remove());
             
             const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             pathEl.id = path.id;
@@ -1931,6 +1941,10 @@
                 marker.setAttribute('text-anchor', 'middle');
                 marker.setAttribute('font-size', '20');
                 marker.setAttribute('fill', '#c44536');
+                marker.setAttribute('stroke', '#c44536');
+                marker.setAttribute('stroke-width', '1.5');
+                marker.setAttribute('stroke-linejoin', 'round');
+                marker.setAttribute('paint-order', 'stroke');
                 marker.textContent = '✕';
                 marker.id = `${path.id}-marker`;
                 pathsLayer.appendChild(marker);
@@ -1939,6 +1953,7 @@
             // Render waypoint handles if this path is selected
             if (selectedPath && selectedPath.id === path.id) {
                 renderWaypointHandles(path);
+                renderDeadEndHandle(path);
             }
         }
         
@@ -2129,7 +2144,7 @@
         
         function renderWaypointHandles(path) {
             if (!path.waypoints) return;
-            
+
             path.waypoints.forEach((wp, index) => {
                 const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 handle.setAttribute('cx', wp.x);
@@ -2142,13 +2157,13 @@
                 handle.classList.add('waypoint-handle');
                 handle.dataset.pathId = path.id;
                 handle.dataset.waypointIndex = index;
-                
+
                 // Drag waypoint
                 handle.addEventListener('mousedown', (e) => {
                     e.stopPropagation();
                     startWaypointDrag(path, index, e);
                 });
-                
+
                 // Double-click to remove waypoint
                 handle.addEventListener('dblclick', (e) => {
                     e.stopPropagation();
@@ -2156,9 +2171,31 @@
                     renderPath(path);
                     saveToLocalStorage();
                 });
-                
+
                 pathsLayer.appendChild(handle);
             });
+        }
+
+        function renderDeadEndHandle(path) {
+            if (path.type !== 'dead-end' || !path.endPoint) return;
+
+            const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            handle.setAttribute('cx', path.endPoint.x);
+            handle.setAttribute('cy', path.endPoint.y);
+            handle.setAttribute('r', '8');
+            handle.setAttribute('fill', '#c44536');
+            handle.setAttribute('stroke', '#2c2416');
+            handle.setAttribute('stroke-width', '2');
+            handle.setAttribute('cursor', 'move');
+            handle.classList.add('deadend-handle');
+            handle.dataset.pathId = path.id;
+
+            handle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                startDeadEndDrag(path, e);
+            });
+
+            pathsLayer.appendChild(handle);
         }
         
         let draggingWaypoint = null;
@@ -2193,7 +2230,49 @@
                 saveToLocalStorage();
                 draggingWaypoint = null;
             };
-            
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        }
+
+        let draggingDeadEnd = null;
+
+        function startDeadEndDrag(path, e) {
+            draggingDeadEnd = { path };
+
+            const onMove = (e) => {
+                const canvasRect = canvas.getBoundingClientRect();
+                const x = (e.clientX - canvasRect.left) / zoom;
+                const y = (e.clientY - canvasRect.top) / zoom;
+
+                draggingDeadEnd.path.endPoint = { x, y };
+
+                const pathEl = document.getElementById(draggingDeadEnd.path.id);
+                if (pathEl) {
+                    pathEl.setAttribute('d', createPathWithWaypoints(draggingDeadEnd.path));
+                    updatePathLabelPosition(draggingDeadEnd.path);
+                }
+
+                const marker = document.getElementById(`${path.id}-marker`);
+                if (marker) {
+                    marker.setAttribute('x', x);
+                    marker.setAttribute('y', y + 5);
+                }
+
+                const handle = document.querySelector(`.deadend-handle[data-path-id="${path.id}"]`);
+                if (handle) {
+                    handle.setAttribute('cx', x);
+                    handle.setAttribute('cy', y);
+                }
+            };
+
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                saveToLocalStorage();
+                draggingDeadEnd = null;
+            };
+
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
         }
@@ -2295,7 +2374,9 @@
                     // Update waypoint handles if this path is selected
                     if (selectedPath && selectedPath.id === path.id) {
                         document.querySelectorAll(`.waypoint-handle[data-path-id="${path.id}"]`).forEach(h => h.remove());
+                        document.querySelectorAll(`.deadend-handle[data-path-id="${path.id}"]`).forEach(h => h.remove());
                         renderWaypointHandles(path);
+                        renderDeadEndHandle(path);
                     }
                     
                     // Update path label position
@@ -2335,6 +2416,7 @@
 
             // Show waypoint handles
             renderWaypointHandles(selectedPath);
+            renderDeadEndHandle(selectedPath);
 
             // Show sidebar and path properties panel
             document.querySelector('.sidebar-right').classList.remove('hidden');
@@ -2350,6 +2432,7 @@
             document.querySelectorAll('.paths-layer path').forEach(p => p.setAttribute('stroke-width', '3'));
             document.querySelectorAll('.properties-panel').forEach(p => p.classList.remove('visible'));
             document.querySelectorAll('.waypoint-handle').forEach(h => h.remove());
+            document.querySelectorAll('.deadend-handle').forEach(h => h.remove());
             document.getElementById('noSelection').style.display = 'block';
 
             // Hide sidebar when nothing is selected
