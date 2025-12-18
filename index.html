@@ -2809,6 +2809,15 @@
                 pathIdCounter
             };
             localStorage.setItem('dreammap', JSON.stringify(data));
+
+            if (!viewOnlyMode) {
+                try {
+                    const encoded = serializeState();
+                    history.replaceState(null, '', `#${encoded}`);
+                } catch (error) {
+                    console.error('Failed to update URL:', error);
+                }
+            }
         }
 
         function loadFromLocalStorage() {
